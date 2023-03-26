@@ -23,8 +23,7 @@ const user = require('./userModel')
     },
     paymentReference: {
       type: String,
-      // required: [true, 'payment gateway is required'],
-      enum: ['flutterwave'],
+      required: [true, 'payment reference is required'],
     }, 
     createdAt: {
         type: Date,
