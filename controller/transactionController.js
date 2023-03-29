@@ -1,4 +1,3 @@
-const axios = require("axios");
 const flutterwave = require("flutterwave-node-v3");
 const flw = new flutterwave(
   process.env.FLUTTERWAVE_V3_PUBLIC_KEY,
@@ -7,6 +6,7 @@ const flw = new flutterwave(
 const catchAsync = require("../utlis/catchAsync");
 const AppError = require("../utlis/appError");
 const Transaction = require("../models/transactionModel");
+const User = require("../models/userModel");
 
 exports.getAllTransaction = catchAsync(async (req, res, next) => {
   const newTransaction = await Transaction.find();
@@ -16,14 +16,13 @@ exports.getAllTransaction = catchAsync(async (req, res, next) => {
       newTransaction,
     },
   });
-  next();
 });
 
 exports.getTransaction = catchAsync(async (req, res, next) => {
   //route handler is all the call back function
-  const transaction = await Transaction
-    .findById(req.params.id)
-    .populate("userId");
+  const transaction = await Transaction.findById(req.params.id).populate(
+    "userId"
+  );
   // console.log(transaction)
 
   if (!transaction) {
@@ -36,7 +35,6 @@ exports.getTransaction = catchAsync(async (req, res, next) => {
       transaction,
     },
   });
-  next();
 });
 
 exports.createTransaction = catchAsync(async (req, res, next) => {
@@ -45,72 +43,48 @@ exports.createTransaction = catchAsync(async (req, res, next) => {
     amount: req.body.amount,
     paymentReference: "6578998999877",
   });
-  console.log("newTransaction");
-  console.log(newTransaction);
-
+  const user = await User.findOne({ _id: req.body.userId });
   const details = {
     card_number: "5531886652142950",
     cvv: "564",
     expiry_month: "09",
     expiry_year: "32",
     currency: "NGN",
-    amount: "100",
-    fullname: "Yolande Aglaé Colbert",
-    email: "user@example.com",
-    tx_ref: "MC- 3243e",
+    amount: Number(newTransaction.amount),
+    fullname: `${user.firstName} ${user.lastName}`,
+    email: user.email,
+    tx_ref: newTransaction.paymentReference,
     enckey: process.env.FLUTTERWAVE_ENCRYPTION_KEY,
     authorization: {
-      " mode": "pin",
-      "pin": "3310",
+      mode: "pin",
+      pin: "3310",
     },
-  }; 
-  encrypt()
- 
-  console.log(details);
+  };
+  const response = await chargeCard(details);
 
-  axios
-    .post(
-      "https://api.flutterwave.com/v3/charges?type=card",
-      details,
-
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-      }
-    )
-    .then((response) => {
-      console.log(response.data);
-      console.log(response);
-      res.status(200).send(response.data);
-      if (response.data.status === "successful" && response.data.amount === newTransaction.amount) {
-        newTransaction.update({ status: "completed" });
-      } else {
-        newTransaction.update({ status: "initiated" });
-      }
-      
-    })
-    .catch((error) => {
-      console.log(error.response.data);
+  if (
+    response?.status === "success" &&
+    response?.data.amount === newTransaction.amount
+  ) {
+    const result = await Transaction.findOneAndUpdate(newTransaction._id, {
+      paymentStatus: "successful",
     });
+  } else {
+    await Transaction.findOneAndUpdate(newTransaction._id, {
+      paymentStatus: "failed",
+    });
+  }
+
+  res.status(200).json({
+    status: "success",
+  });
 });
 
-
-
-  const encrypt = (FLUTTERWAVE_ENCRYPTION_KEY, details) => {
-    const text = JSON.stringify(details);
-    const forge = require("node-forge");
-    const cipher = forge.cipher.createCipher(
-        "3DES-ECB",
-        forge.util.createBuffer(FLUTTERWAVE_ENCRYPTION_KEY)
-    );
-    
-    cipher.start({iv: ""});
-    cipher.update(forge.util.createBuffer(text, "utf-8"));
-    cipher.finish();
-    const encrypted = cipher.output;
-    return forge.util.encode64(encrypted.getBytes());
-  };
-  
+const chargeCard = async (payload) => {
+  try {
+    const response = await flw.Charge.card(payload);
+    return response;
+  } catch (error) {
+    console.log(error);
+  }
+};
